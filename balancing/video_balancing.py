@@ -547,6 +547,13 @@
 
 
 
+
+
+
+
+
+
+
 import tensorflow as tf
 import os
 import numpy as np
@@ -771,9 +778,11 @@ epochs = 50
 batch_size = 1
 
 # Prepare dataset from loaded data
-def get_batch_data(emotion, speaker):
+# Update the function to accept batch_size argument
+def get_batch_data(emotion, speaker, batch_size=1):
     faces = data[emotion][speaker]['faces']
     return faces[np.random.randint(0, len(faces), size=batch_size)]
+
 
 # Training step
 @tf.function
@@ -808,6 +817,19 @@ generator_losses = []
 discriminator_losses = []
 cycle_losses = []
 
+def generate_synthetic_samples(emotion, speaker, batch_size=1):
+    real_images, _ = get_batch_data(emotion, speaker, batch_size=batch_size)
+    synthetic_images = generator_g(real_images)
+    synthetic_images = (synthetic_images + 1.0) * 127.5  # Rescale to [0, 255]
+    synthetic_images = np.clip(synthetic_images, 0, 255).astype(np.uint8)
+    
+    for i, img in enumerate(synthetic_images):
+        img_filename = f"synthetic_{emotion}_{speaker}_{i}.jpg"
+        cv2.imwrite(img_filename, img)
+
+    return synthetic_images
+
+
 # Start training
 if check_directory_structure():
     data = load_data()
@@ -828,6 +850,7 @@ if check_directory_structure():
 
                 # Debugging statement
                 print(f"[{emotion}] [{speaker}] Generator Loss: {g_loss:.4f}, Discriminator Loss: {d_loss:.4f}, Total Generator Loss: {total_g_loss:.4f}")
+        generate_synthetic_samples(epoch, data)
 
         # Early stopping based on generator loss stagnation
         if g_loss < min_generator_loss:
