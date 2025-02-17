@@ -1,104 +1,297 @@
-import cv2
-import numpy as np
-import os
-import random
+# import os
+# import cv2
+# import pandas as pd
+# import mediapipe as mp
+# import librosa
+# import numpy as np
+# import subprocess
 
-# Paths
-RAW_VIDEO_DIR = "D:/MELD/MELD.Raw/video"
-AUGMENTED_VIDEO_DIR = "D:/MELD/processed/augmented_video"
+# # Paths
+# video_folder = 'D:/MELD/MELD.Raw/train/train_splits/'
+# csv_path = "D:/MELD/MELD.Raw/Csv/train_sent_emo.csv"  # Path to your CSV
+# output_face_folder = 'D:/MELD/output_faces/'
+# output_audio_folder = 'D:/MELD/output_audio/'
 
-# Ensure output directory exists
-os.makedirs(AUGMENTED_VIDEO_DIR, exist_ok=True)
+# # Create directories for saving extracted faces and audio if not exist
+# if not os.path.exists(output_face_folder):
+#     os.makedirs(output_face_folder)
 
-# List of video files (example: .mp4 or .avi)
-video_files = [os.path.join(RAW_VIDEO_DIR, f) for f in os.listdir(RAW_VIDEO_DIR) if f.endswith('.mp4')]
+# if not os.path.exists(output_audio_folder):
+#     os.makedirs(output_audio_folder)
 
-# Function to flip the video frames horizontally
-def flip_frame(frame):
-    """Flip the video frame horizontally."""
-    return cv2.flip(frame, 1)
+# # Load CSV
+# csv_data = pd.read_csv(csv_path)
 
-# Function to rotate the video frame by a random angle
-def rotate_frame(frame):
-    """Rotate the video frame by a random angle."""
-    angle = random.randint(-30, 30)  # Random angle between -30 and 30 degrees
-    height, width = frame.shape[:2]
-    center = (width // 2, height // 2)
-    matrix = cv2.getRotationMatrix2D(center, angle, 1)  # Rotation matrix
-    rotated_frame = cv2.warpAffine(frame, matrix, (width, height))
-    return rotated_frame
+# # MediaPipe for face detection and face mesh landmarks
+# mp_face_detection = mp.solutions.face_detection
+# mp_face_mesh = mp.solutions.face_mesh
 
-# Function to interpolate between two frames (for smoother transitions)
-def interpolate_frames(frame1, frame2):
-    """Interpolate between two frames to create a smoother transition."""
-    alpha = random.uniform(0.3, 0.7)  # Random interpolation factor
-    interpolated_frame = cv2.addWeighted(frame1, alpha, frame2, 1 - alpha, 0)
-    return interpolated_frame
-
-# Function to augment the video
-def augment_video(video_file):
-    """Augment the video by applying flipping, rotation, and frame interpolation."""
-    # Read video file using OpenCV
-    cap = cv2.VideoCapture(video_file)
-
-    # Get video properties
-    fps = cap.get(cv2.CAP_PROP_FPS)  # Frames per second
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))  # Width of frames
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))  # Height of frames
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))  # Total number of frames
-
-    augmented_frames = []
+# # Function to check if the face and audio features already exist
+# def check_if_processed(video_name, speaker_name, emotion):
+#     # Check if the face frames already exist
+#     face_folder = os.path.join(output_face_folder, emotion, speaker_name)
+#     audio_folder = os.path.join(output_audio_folder, emotion, speaker_name)
     
-    # Read frames and augment
-    prev_frame = None
-    for i in range(frame_count):
-        ret, frame = cap.read()
-        if not ret:
-            break
+#     # Check if the directory exists for face frames
+#     if os.path.exists(face_folder):
+#         # Check if at least one frame exists in the folder (this is enough to confirm processing)
+#         face_files = [f for f in os.listdir(face_folder) if f.endswith('.jpg')]
+#         if len(face_files) > 0:
+#             return True  # Faces are already processed
+    
+#     # Check if the audio features already exist
+#     if os.path.exists(audio_folder):
+#         # Check if at least one audio feature file exists in the folder
+#         audio_files = [f for f in os.listdir(audio_folder) if f.endswith('.npy')]
+#         if len(audio_files) > 0:
+#             return True  # Audio features are already processed
 
-        # Apply frame augmentations
-        if random.choice([True, False]):
-            frame = flip_frame(frame)
-        if random.choice([True, False]):
-            frame = rotate_frame(frame)
-        if prev_frame is not None and random.choice([True, False]):
-            frame = interpolate_frames(prev_frame, frame)
+#     return False  # No processed data found
 
-        # Store the augmented frame
-        augmented_frames.append(frame)
+# # Extract face and audio features for all rows
+# def extract_faces_and_audio(video_path, speaker_name, emotion, output_face_folder, output_audio_folder):
+#     cap = cv2.VideoCapture(video_path)
+#     frame_list = []
+#     audio_features_list = []
+
+#     # Extract faces and landmarks
+#     with mp_face_mesh.FaceMesh(min_detection_confidence=0.5) as face_mesh:
+#         frame_count = 0  # Keep track of the frame number
         
-        # Update previous frame
-        prev_frame = frame
+#         while cap.isOpened():
+#             ret, frame = cap.read()
+#             if not ret:
+#                 print(f"Failed to capture frame in {video_path}. Breaking the loop.")
+#                 break
 
-    cap.release()
-    return augmented_frames, fps, width, height
+#             # Debugging the frame number
+#             frame_count += 1
+#             print(f"Processing frame {frame_count} of {video_path}")
 
-# Function to save the augmented video
-def save_augmented_video(augmented_frames, fps, width, height, original_video_file):
-    """Save the augmented frames as a new video file."""
-    base_filename = os.path.basename(original_video_file)
-    augmented_filename = f"augmented_{base_filename}"
+#             # Face detection and landmarks extraction
+#             results = face_mesh.process(frame)
+#             if results.multi_face_landmarks:
+#                 for landmarks in results.multi_face_landmarks:
+#                     frame_list.append(frame)  # Store the frame with detected face
 
-    # Create a VideoWriter object to save the video
-    output_path = os.path.join(AUGMENTED_VIDEO_DIR, augmented_filename)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Define codec
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+#     cap.release()
 
-    # Write each augmented frame to the video
-    for frame in augmented_frames:
-        out.write(frame)
+#     # Save extracted faces immediately (instead of after all frames)
+#     if frame_list:
+#         # Create emotion and speaker-specific folder
+#         speaker_face_folder = os.path.join(output_face_folder, emotion, speaker_name)
+#         if not os.path.exists(speaker_face_folder):
+#             os.makedirs(speaker_face_folder)
 
-    out.release()
-    print(f"Saved augmented video: {output_path}")
+#         # Save each frame immediately
+#         for idx, face in enumerate(frame_list):
+#             # Create a unique filename by adding video name and emotion
+#             frame_filename = os.path.join(speaker_face_folder, f'{video_name}_{emotion}_frame_{idx}.jpg')
+#             cv2.imwrite(frame_filename, face)
+#             print(f"Saved face frame {idx} for {speaker_name} with filename {frame_filename}")
 
-# Main process: Loop through video files and augment them
-for video_file in video_files:
-    print(f"Processing {video_file}...")
+#     # Extract audio features immediately
+#     # Extract audio from the video using ffmpeg
+#     audio_path = video_path.replace('.mp4', '.wav')  # Output path for the temporary audio file
+#     if not os.path.exists(audio_path):  # If the audio file doesn't exist, extract it
+#         try:
+#             # Use ffmpeg to extract audio from video
+#             command = f"ffmpeg -i {video_path} -vn -acodec pcm_s16le -ar 44100 -ac 2 {audio_path}"
+#             subprocess.run(command, shell=True, check=True)  # Execute the command
+#             print(f"Extracted audio for {video_path}")
+#         except subprocess.CalledProcessError as e:
+#             print(f"Error extracting audio from {video_path}: {e}")
+#             return []
+
+#     # Now extract audio features from the newly extracted .wav file
+#     if os.path.exists(audio_path):
+#         try:
+#             y, sr = librosa.load(audio_path)
+#             mfcc = librosa.feature.mfcc(y=y, sr=sr)
+#             audio_features_list.append(mfcc)  # Store the MFCC features
+
+#             # Save audio features immediately in emotion and speaker folder
+#             speaker_audio_folder = os.path.join(output_audio_folder, emotion, speaker_name)
+#             if not os.path.exists(speaker_audio_folder):
+#                 os.makedirs(speaker_audio_folder)
+
+#             audio_filename = os.path.join(speaker_audio_folder, f'{speaker_name}_audio_features.npy')
+#             np.save(audio_filename, mfcc)
+#             print(f"Saved audio features for {speaker_name} with emotion {emotion}")
+#         except Exception as e:
+#             print(f"Error extracting audio features from {audio_path}: {e}")
+#     else:
+#         print(f"Audio extraction failed for {video_path}")
+
+#     return frame_list, audio_features_list
+
+# # Iterate over CSV and extract features
+# for idx, row in csv_data.iterrows():
+#     speaker_name = row['Speaker']
+#     dialogue_id = row['Dialogue_ID']
+#     utterance_id = row['Utterance_ID']
+#     emotion = row['Emotion']  # Emotion from the CSV
     
-    # Perform video augmentation
-    augmented_frames, fps, width, height = augment_video(video_file)
+#     # Construct the video name based on Dialogue_ID and Utterance_ID
+#     video_name = f"dia{dialogue_id}_utt{utterance_id}.mp4"
+#     video_path = os.path.join(video_folder, video_name)
     
-    # Save the augmented video
-    save_augmented_video(augmented_frames, fps, width, height, video_file)
+#     # Check if the data has already been processed
+#     if not check_if_processed(video_name, speaker_name, emotion):
+#         # Video exists and has not been processed yet
+#         if os.path.exists(video_path):
+#             # Extract faces and audio features
+#             frames, audio_features = extract_faces_and_audio(video_path, speaker_name, emotion, output_face_folder, output_audio_folder)
+#             print(f"Processed {video_name} for speaker {speaker_name} with emotion {emotion}")
+#         else:
+#             print(f"Video file {video_name} does not exist!")
+#     else:
+#         print(f"Data for {video_name} for speaker {speaker_name} with emotion {emotion} already processed!")
 
-print("Video augmentation complete!")
+# print("Data extraction complete!")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
