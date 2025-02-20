@@ -765,16 +765,16 @@ def train_stylegan2():
     print("\n🚀 Starting StyleGAN2-ADA training...\n")
 
     cmd = [
-        sys.executable,
-        os.path.join(STYLEGAN2_ADA_DIR, "train.py"),
-        "--outdir", TRAIN_DIR,
-        "--data", os.path.join(LMDB_DIR, "rachel_faces.zip"),
-        "--gpus", "1",
-        "--batch", "16",  # Adjust based on GPU VRAM
-        "--kimg", "5000",   # Train for 5000 kimg (adjust as needed)
-        "--mirror", "1",    # Enable horizontal mirroring
-        "--snap", "10"      # Save snapshots every 10 ticks
-    ]
+    sys.executable,
+    os.path.join(STYLEGAN2_ADA_DIR, "train.py"),
+    "--outdir", TRAIN_DIR,
+    "--data", os.path.join(LMDB_DIR, "rachel_faces.zip"),
+    "--gpus", "1",
+    "--batch", "8",  # Adjust based on GPU VRAM
+    "--kimg", "500",   # Train for 500 kimg (adjust as needed)
+    "--mirror", "1",    # Enable horizontal mirroring
+    "--snap", "10",     # Save snapshots every 10 ticks
+]
 
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, universal_newlines=True)
