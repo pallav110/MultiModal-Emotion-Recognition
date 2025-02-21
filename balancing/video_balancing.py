@@ -675,38 +675,40 @@
 
 
 
-
 import os
 import subprocess
 import sys
 import cv2
-import torch.version
-from tqdm import tqdm
 import torch
 import shutil
 import numpy as np
 import albumentations as A
 import warnings
+import argparse
+from tqdm import tqdm
+from multiprocessing import Pool, cpu_count
+
 warnings.simplefilter("ignore")
 
 # 🖥️ Set Paths
 STYLEGAN2_ADA_DIR = "D:/MELD/stylegan2-ada-pytorch"
 INPUT_DIR = "D:/MELD/output_faces/surprise/Rachel"  # Original images
-OUTPUT_DIR = "D:/MELD/stylegan2_dataset/rachel_faces"  # Resized + Augmented images
-LMDB_DIR = "D:/MELD/stylegan2_dataset/rachel_lmdb"  # Dataset in LMDB format
-TRAIN_DIR = "D:/MELD/stylegan2_training"  # Where the model gets saved
+OUTPUT_DIR = "D:/MELD/stylegan2_dataset/rachel_faces"  # Processed images
+LMDB_DIR = "D:/MELD/stylegan2_dataset/rachel_lmdb"  # LMDB dataset
+TRAIN_DIR = "D:/MELD/stylegan2_training"  # Training output
 
-# Print CUDA info
-print("Device:", "CUDA" if torch.cuda.is_available() else "CPU")
-print("CUDA Available:", torch.cuda.is_available())
-print("PyTorch Version:", torch.__version__)
-print("CUDA Version:", torch.version.cuda)
-print("GPU Name:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU detected")
+# ✅ Ensure required directories exist
+for path in [OUTPUT_DIR, LMDB_DIR, TRAIN_DIR]:
+    os.makedirs(path, exist_ok=True)
 
-# Ensure required directories exist
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(LMDB_DIR, exist_ok=True)
-os.makedirs(TRAIN_DIR, exist_ok=True)
+# 🔄 Print CUDA info
+def print_cuda_info():
+    print("\n🔍 System Info:")
+    print("Device:", "CUDA" if torch.cuda.is_available() else "CPU")
+    print("CUDA Available:", torch.cuda.is_available())
+    print("PyTorch Version:", torch.__version__)
+    print("CUDA Version:", torch.version.cuda)
+    print("GPU Name:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU detected")
 
 # ✨ Augmentations for better training
 AUGMENTATIONS = A.Compose([
@@ -717,90 +719,88 @@ AUGMENTATIONS = A.Compose([
     A.GaussNoise(p=0.2)
 ])
 
-# 🖼️ Step 1: Resize + Augment Images
+# 🖼️ Step 1: Resize + Augment Images (Multiprocessing)
+def process_image(img_file):
+    img_path = os.path.join(INPUT_DIR, img_file)
+    img = cv2.imread(img_path)
+    if img is None:
+        return f"⚠️ Error loading {img_file}"
+    img = cv2.resize(img, (512, 512))
+    cv2.imwrite(os.path.join(OUTPUT_DIR, img_file), img)
+    for i in range(5):
+        augmented = AUGMENTATIONS(image=img)["image"]
+        aug_file = f"{os.path.splitext(img_file)[0]}_aug{i}.jpg"
+        cv2.imwrite(os.path.join(OUTPUT_DIR, aug_file), augmented)
+    return f"✅ Processed {img_file}"
+
 def process_images():
     print("\n🔄 Resizing and augmenting images...")
     image_files = [f for f in os.listdir(INPUT_DIR) if f.endswith(('.jpg', '.png'))]
-
     if not image_files:
         print("❌ No images found in INPUT_DIR!")
         return
-
-    for img_file in tqdm(image_files, desc="Processing Images"):
-        img_path = os.path.join(INPUT_DIR, img_file)
-        img = cv2.imread(img_path)
-
-        if img is None:
-            print(f"⚠️ Error loading {img_file}")
-            continue
-
-        # Resize to 512x512
-        img = cv2.resize(img, (512, 512))
-
-        # Save original resized image
-        cv2.imwrite(os.path.join(OUTPUT_DIR, img_file), img)
-
-        # Apply augmentations (5 variations)
-        for i in range(5):
-            augmented = AUGMENTATIONS(image=img)["image"]
-            aug_file = f"{os.path.splitext(img_file)[0]}_aug{i}.jpg"
-            cv2.imwrite(os.path.join(OUTPUT_DIR, aug_file), augmented)
-
+    with Pool(cpu_count()) as p:
+        for result in tqdm(p.imap(process_image, image_files), total=len(image_files)):
+            print(result)
     print("✅ All images processed!")
 
 # 🔄 Step 2: Convert Dataset to ZIP format for StyleGAN2-ADA
 def convert_dataset():
     print("\n🔄 Converting dataset to ZIP format...")
     zip_path = os.path.join(LMDB_DIR, "rachel_faces.zip")
-    
     if os.path.exists(zip_path):
         os.remove(zip_path)  # Remove old dataset if exists
-    
     shutil.make_archive(zip_path.replace(".zip", ""), 'zip', OUTPUT_DIR)
     print("✅ Dataset converted to ZIP format!")
 
-# 🚀 Step 3: Train StyleGAN2-ADA
 # 🚀 Step 3: Train StyleGAN2-ADA (Live Updates)
 def train_stylegan2():
-    print("\n🚀 Starting StyleGAN2-ADA training...\n")
-
+    print("\n🚀 Starting StyleGAN2-ADA training...")
     cmd = [
     sys.executable,
     os.path.join(STYLEGAN2_ADA_DIR, "train.py"),
     "--outdir", TRAIN_DIR,
     "--data", os.path.join(LMDB_DIR, "rachel_faces.zip"),
-    "--gpus", "1",
-    "--batch", "8",  # Adjust based on GPU VRAM
-    "--kimg", "500",   # Train for 500 kimg (adjust as needed)
-    "--mirror", "1",    # Enable horizontal mirroring
-    "--snap", "10",     # Save snapshots every 10 ticks
+    "--gpus", "1",  # Keep this as 1 since you have an RTX 4070 with 8GB VRAM
+    "--batch", "8",  # 🆙 Increase batch size (if VRAM allows)
+    "--kimg", "1000",  # 🆙 Train longer for better results (default is 500)
+    "--mirror", "1",  # Keep horizontal flipping enabled
+    "--snap", "1",  # Save snapshots every 10 ticks
+    "--aug", "ada",  # 🔥 Adaptive Data Augmentation (improves stability)
+    "--metrics", "fid50k_full",  # 🎯 Enable FID evaluation
+    "--gamma", "10",  # 🎯 Tune R1 regularization (10 is a good default for FFHQ)
+    "--cfg", "stylegan2",  # 🏗️ Use StyleGAN2 backbone (instead of auto)
 ]
 
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, universal_newlines=True)
-
-        # ✅ Read output line-by-line in real-time
         for line in iter(process.stdout.readline, ""):
             if "tick" in line:
-                print(f"\033[94m📌 {line.strip()}\033[0m")  # Blue color for progress
+                print(f"\033[94m📌 {line.strip()}\033[0m")  # Blue for progress
             elif "kimg" in line:
-                print(f"\033[92m🖼️ {line.strip()}\033[0m")  # Green color for image training updates
+                print(f"\033[92m🖼️ {line.strip()}\033[0m")  # Green for image updates
             elif "CUDA" in line:
                 print(f"\033[93m⚡ {line.strip()}\033[0m")  # Yellow for CUDA info
             else:
-                print(line.strip())  # Default output
-            sys.stdout.flush()  # Force output to appear instantly
-
+                print(line.strip())
+            sys.stdout.flush()
         process.wait()
         print("\n✅ Training completed! Check logs for details.")
-
     except subprocess.CalledProcessError as e:
         print(f"❌ Training error: {e}")
 
+# 🎯 Argument Parser
+# 🎯 Automatically Run All Steps in Order
+def main():
+    print_cuda_info()
+    
+    print("\n🚀 Starting Full Pipeline...\n")
+    
+    process_images()      # Step 1: Resize & Augment Images
+    convert_dataset()     # Step 2: Convert Dataset to ZIP
+    train_stylegan2()     # Step 3: Train StyleGAN2-ADA
 
-# 🏁 Run everything
+    print("\n✅ All Steps Completed Successfully!")
+    
 if __name__ == "__main__":
-    print("\n🚀 Starting Full StyleGAN2-ADA Pipeline 🚀")
-    process_images()
-    convert_dataset()
-    train_stylegan2()
+    main()
